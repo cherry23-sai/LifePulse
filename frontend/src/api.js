@@ -1,4 +1,4 @@
-const BASE = import.meta.env.VITE_API || "http://localhost:8000/api";
+const BASE = import.meta.env.VITE_API;
 export const auth = { get: () => localStorage.getItem("lp_token"), set: t => localStorage.setItem("lp_token", t), clear: () => localStorage.removeItem("lp_token") };
 export async function upload(path, file) {
   const fd = new FormData(); fd.append("file", file);
