@@ -25,6 +25,14 @@ DATABASES = {"default": {
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 TIME_ZONE = "Asia/Kolkata"; USE_TZ = True
 CORS_ALLOW_ALL_ORIGINS = True
+
+CORS_ALLOWED_ORIGINS = [
+    "https://life-pulse-taupe.vercel.app",
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    "https://life-pulse-taupe.vercel.app",
+]
 REST_FRAMEWORK = {"DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework_simplejwt.authentication.JWTAuthentication"],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"]}
 from datetime import timedelta
