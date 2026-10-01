@@ -1,9 +1,9 @@
 Django>=5.0
 djangorestframework
-djangorestframework-simplejwt
 django-cors-headers
+PyJWT>=2.8
+firebase-admin
 python-dotenv
 django-storages
 boto3
 gunicorn
-firebase-admin>=6.9.0
