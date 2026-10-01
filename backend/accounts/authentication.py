@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from django.conf import settings
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
-from .views import get_user_by_id
+from firebase_db import user_ref
 
 
 ALGORITHM = "HS256"
@@ -63,7 +63,14 @@ class FirestoreJWTAuthentication(BaseAuthentication):
             raise AuthenticationFailed("Access token required.", code="invalid_token")
 
         uid = payload.get("user_id")
-        user = get_user_by_id(uid)
+        if not uid:
+            raise AuthenticationFailed("Token has no user id.", code="user_not_found")
+
+        doc = user_ref(uid).get()
+        user = None
+        if doc.exists:
+            user = doc.to_dict()
+            user["id"] = doc.id
 
         if not user or not user.get("is_active", False):
             raise AuthenticationFailed(
