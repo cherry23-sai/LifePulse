@@ -1,5 +1,6 @@
 import os
 import json
+import base64
 
 import firebase_admin
 from firebase_admin import credentials, firestore, storage
@@ -15,55 +16,67 @@ def init_firebase():
     if _app is not None:
         return _db
 
-    # Render Secret File:
-    # The file uploaded in Render is named:
-    # firebase-service-account.json.json
-    #
-    # Render mounts Secret Files under /etc/secrets/
-    secret_file_path = "/etc/secrets/firebase-service-account.json.json"
-
-    # Allow an environment variable to override the default path.
+    # Render Secret File
     path = os.getenv("FIREBASE_SERVICE_ACCOUNT_FILE", "").strip()
 
-    # If no path is configured, use the Render Secret File path.
-    if not path:
-        path = secret_file_path
+    # Optional JSON / Base64 environment variables
+    raw_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "").strip()
+    raw_b64 = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON_BASE64", "").strip()
 
-    if os.path.exists(path):
+    # 1. Prefer the Render Secret File
+    if path:
+        if not os.path.exists(path):
+            raise RuntimeError(
+                f"Firebase service-account file was not found: {path}"
+            )
+
         cred = credentials.Certificate(path)
+
+    # 2. Optional raw JSON environment variable
+    elif raw_json:
+        try:
+            info = json.loads(raw_json)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                "FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON."
+            ) from exc
+
+        cred = credentials.Certificate(info)
+
+    # 3. Optional Base64 environment variable
+    elif raw_b64:
+        try:
+            info = json.loads(
+                base64.b64decode(raw_b64).decode("utf-8")
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                "FIREBASE_SERVICE_ACCOUNT_JSON_BASE64 "
+                "is not valid Base64-encoded JSON."
+            ) from exc
+
+        cred = credentials.Certificate(info)
+
+    # 4. Local development fallback
     else:
-        # Optional local-development fallback.
         local_path = os.path.join(
             os.path.dirname(__file__),
-            "firebase-service-account.json.json",
+            "firebase-service-account.json.json"
         )
 
         if os.path.exists(local_path):
             cred = credentials.Certificate(local_path)
         else:
-            # Also support raw JSON in an environment variable if needed.
-            raw_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "").strip()
-
-            if raw_json:
-                try:
-                    info = json.loads(raw_json)
-                except json.JSONDecodeError as exc:
-                    raise RuntimeError(
-                        "FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON."
-                    ) from exc
-
-                cred = credentials.Certificate(info)
-            else:
-                raise RuntimeError(
-                    "Firebase service-account credentials were not found. "
-                    "Expected Render Secret File at "
-                    f"{secret_file_path}, or set "
-                    "FIREBASE_SERVICE_ACCOUNT_FILE."
-                )
+            raise RuntimeError(
+                "Firebase credentials are not configured. "
+                "Set FIREBASE_SERVICE_ACCOUNT_FILE, "
+                "FIREBASE_SERVICE_ACCOUNT_JSON, or "
+                "FIREBASE_SERVICE_ACCOUNT_JSON_BASE64."
+            )
 
     bucket_name = os.getenv(
         "FIREBASE_STORAGE_BUCKET",
-        "lifepulse-37ad0.firebasestorage.app",
+        "lifepulse-37ad0.firebasestorage.app"
     ).strip()
 
     options = {}
@@ -73,10 +86,10 @@ def init_firebase():
 
     _app = firebase_admin.initialize_app(
         cred,
-        options or None,
+        options or None
     )
 
-    _db = firestore.client()
+    _db = firestore.client(database_id="default")
 
     if bucket_name:
         _bucket = storage.bucket(app=_app)
@@ -97,15 +110,15 @@ def user_ref(uid):
 
 
 def _uid_from_user(user):
-    """
-    Accepts the FirestoreUser object used by DRF authentication,
-    a user dictionary, or a raw user ID.
-    """
     if hasattr(user, "id"):
         return str(user.id)
 
     if isinstance(user, dict):
-        uid = user.get("id") or user.get("pk") or user.get("user_id")
+        uid = (
+            user.get("id")
+            or user.get("pk")
+            or user.get("user_id")
+        )
 
         if uid:
             return str(uid)
@@ -117,35 +130,32 @@ def _uid_from_user(user):
 
 
 def col(user, collection_name):
-    """
-    Return a Firestore subcollection belonging to the authenticated user.
-
-    Example:
-        col(request.user, "memories")
-
-    resolves to:
-        users/{user_id}/memories
-    """
     name = str(collection_name).strip()
 
     if not name:
-        raise ValueError("Firestore collection name cannot be empty.")
+        raise ValueError(
+            "Firestore collection name cannot be empty."
+        )
 
-    return user_ref(_uid_from_user(user)).collection(name)
+    return user_ref(
+        _uid_from_user(user)
+    ).collection(name)
 
 
 def now():
     return firestore.SERVER_TIMESTAMP
 
 
-def ts_to_iso(v):
-    if hasattr(v, "isoformat"):
-        return v.isoformat()
+def ts_to_iso(value):
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
 
-    return v
+    return value
 
 
 def upload_file(file_obj, path, content_type=None):
+    global _bucket
+
     if _bucket is None:
         init_firebase()
 
@@ -158,7 +168,10 @@ def upload_file(file_obj, path, content_type=None):
 
     blob.upload_from_file(
         file_obj,
-        content_type=content_type or "application/octet-stream",
+        content_type=(
+            content_type
+            or "application/octet-stream"
+        )
     )
 
     blob.make_public()
@@ -167,6 +180,8 @@ def upload_file(file_obj, path, content_type=None):
 
 
 def delete_file(path):
+    global _bucket
+
     if not path:
         return
 
@@ -179,5 +194,4 @@ def delete_file(path):
     try:
         _bucket.blob(path).delete()
     except Exception:
-        # Deleting an already-missing attachment should not break the API.
         pass
