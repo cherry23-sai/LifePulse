@@ -266,7 +266,7 @@ textarea{resize:vertical}
   display:flex;flex-direction:column;gap:15px;justify-content:center;
   padding:54px;max-width:500px;width:100%;margin:auto
 }
-.authform h1{font-size:2.3rem}.authform>button:first-of-type{background:none;}
+.authform h1{font-size:2.3rem}
 .authform input{background:#fff}
 
 /* LANDING */
