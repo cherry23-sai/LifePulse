@@ -99,6 +99,15 @@ RESEND_FROM_EMAIL = os.getenv(
     "LifePulse <onboarding@resend.dev>",
 )
 
+GMAIL_TOKEN_FILE = os.getenv(
+    "GMAIL_TOKEN_FILE",
+    "/etc/secrets/gmail-token.json",
+)
+
+GMAIL_SENDER_EMAIL = os.getenv(
+    "GMAIL_SENDER_EMAIL",
+    "lifepulse.notify@gmail.com",
+)
 
 LOGGING = {
     "version": 1,

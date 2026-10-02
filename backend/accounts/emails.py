@@ -1,16 +1,22 @@
 import logging
 import threading
+import base64
+from email.message import EmailMessage
 from datetime import timedelta
-
-import resend
-
 from django.conf import settings
 from django.utils import timezone
 from django.utils.html import escape
 
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+
 from firebase_db import db
 
 log = logging.getLogger(__name__)
+
+GMAIL_SCOPES = [
+    "https://www.googleapis.com/auth/gmail.send"
+]
 
 
 def _html(user, heading, lines, button):
@@ -45,6 +51,31 @@ def _html(user, heading, lines, button):
     """
 
 
+def _get_gmail_service():
+    token_file = getattr(
+        settings,
+        "GMAIL_TOKEN_FILE",
+        "/etc/secrets/gmail-token.json",
+    )
+
+    creds = Credentials.from_authorized_user_file(
+        token_file,
+        GMAIL_SCOPES,
+    )
+
+    if not creds or not creds.valid:
+        raise RuntimeError(
+            "Gmail OAuth credentials are missing or expired."
+        )
+
+    return build(
+        "gmail",
+        "v1",
+        credentials=creds,
+        cache_discovery=False,
+    )
+
+
 def send(
     user,
     subject,
@@ -53,58 +84,73 @@ def send(
     button="Open LifePulse",
     connection=None,
 ):
-    """
-    Send a LifePulse email through Resend.
-
-    The connection argument is intentionally kept so existing
-    callers do not need to change.
-    """
-
-    api_key = getattr(settings, "RESEND_API_KEY", "").strip()
-
-    if not api_key:
-        log.error("RESEND_API_KEY is not configured.")
-        return False
-
-    resend.api_key = api_key
-
-    text = (
-        f"Hi {user.get('first_name') or 'there'},\n\n"
-        + "\n\n".join(lines)
-        + f"\n\n{button}: {settings.FRONTEND_URL}"
-    )
-
-    html = _html(
-        user,
-        heading,
-        lines,
-        button,
-    )
-
     try:
-        response = resend.Emails.send(
-            {
-                "from": settings.RESEND_FROM_EMAIL,
-                "to": [user["email"]],
-                "subject": subject,
-                "text": text,
-                "html": html,
-            }
+        sender = getattr(
+            settings,
+            "GMAIL_SENDER_EMAIL",
+            "lifepulse.notify@gmail.com",
+        )
+
+        recipient = user["email"]
+
+        text = (
+            f"Hi {user.get('first_name') or 'there'},\n\n"
+            + "\n\n".join(lines)
+            + f"\n\n{button}: {settings.FRONTEND_URL}"
+        )
+
+        html = _html(
+            user,
+            heading,
+            lines,
+            button,
+        )
+
+        message = EmailMessage()
+
+        message["To"] = recipient
+        message["From"] = sender
+        message["Subject"] = subject
+
+        message.set_content(text)
+
+        message.add_alternative(
+            html,
+            subtype="html",
+        )
+
+        encoded_message = base64.urlsafe_b64encode(
+            message.as_bytes()
+        ).decode()
+
+        service = _get_gmail_service()
+
+        result = (
+            service.users()
+            .messages()
+            .send(
+                userId="me",
+                body={
+                    "raw": encoded_message
+                },
+            )
+            .execute()
         )
 
         log.info(
-            "LifePulse email sent to %s. Resend response: %s",
-            user.get("email"),
-            response,
+            "LifePulse email sent to %s. Gmail message ID: %s",
+            recipient,
+            result.get("id"),
         )
 
         return True
 
     except Exception:
         log.exception(
-            "Email to %s failed through Resend",
+            "Email to %s failed through Gmail API",
             user.get("email"),
         )
+
         return False
 
 
@@ -202,20 +248,24 @@ def nightly_lines(user):
     ]
 
     left = max(
-        len(habits) - sum(1 for x in logs if x.get("done")),
+        len(habits) - sum(
+            1 for x in logs if x.get("done")
+        ),
         0,
     )
 
     if left:
         lines.append(
             f"{left} habit"
-            f"{' is' if left == 1 else 's are'} still not marked today."
+            f"{' is' if left == 1 else 's are'} "
+            "still not marked today."
         )
 
     review = sum(
         1
         for x in todos
-        if not x.get("done") and not x.get("skip_reason")
+        if not x.get("done")
+        and not x.get("skip_reason")
     )
 
     if review:
@@ -224,7 +274,8 @@ def nightly_lines(user):
         )
 
     tomorrow = str(
-        timezone.localdate() + timedelta(days=1)
+        timezone.localdate()
+        + timedelta(days=1)
     )
 
     if not any(
