@@ -93,6 +93,12 @@ FIREBASE_STORAGE_BUCKET = os.getenv(
     "lifepulse-37ad0.firebasestorage.app",
 )
 
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+RESEND_FROM_EMAIL = os.getenv(
+    "RESEND_FROM_EMAIL",
+    "LifePulse <onboarding@resend.dev>",
+)
+
 
 LOGGING = {
     "version": 1,
